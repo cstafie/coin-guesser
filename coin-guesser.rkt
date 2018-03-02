@@ -20,7 +20,9 @@
 ;(define COIN-TAILS-COLOR "silver")
 (define COIN-TAILS-COLOR (color 0 0 0 0))
 (define POWER-SET-SIZE (inexact->exact (log (sqr BOARD-SIZE) 2)))
+(define BASIC-SET (build-list POWER-SET-SIZE identity))
 
+(define HIGHLIGHT-SQUARE (square SQUARE-SIZE "solid" (color 0 255 0 50)))
 (define BLANK-SQUARE (square SQUARE-SIZE "solid" (color 0 0 0 0)))
 (define HEADS (freeze (place-image
                        (circle COIN-SIZE "solid" COIN-HEADS-COLOR)
@@ -35,6 +37,9 @@
 (define (get-x position) (modulo position BOARD-SIZE))
 (define (get-y position) (inexact->exact (floor (/ position BOARD-SIZE))))
 (define (get-xy position) (cons (get-x position) (get-y position)))
+
+(define (take-half l) (take l (/ (length l) 2)))
+(define (drop-half l) (drop l (/ (length l) 2)))
 
 (define (square-color position)
   (if (equal? (modulo (+ (car position) (cdr position)) 2) 0)
@@ -78,10 +83,9 @@
 
 
 (define (hash-addset h s)
-  (println h)
   (cond [(empty? s) h]
         [(hash-has-key? h (first s))
-         (hash-addset (hash-set h (first s) (add1 (hash-ref h (first s)))) (rest s))]
+         (hash-addset (hash-set h (first s) (modulo (add1 (hash-ref h (first s))) 2)) (rest s))]
         [else (hash-addset (hash-set h (first s) 1) (rest s))]))
 
 (define (build-hash coins ps h)
@@ -90,14 +94,30 @@
         [else (build-hash (rest coins) (rest ps) h)]))
 
 
+(define (which-square-helper h s p)
+  (cond [(empty? s) (first p)]
+        [(or (not (hash-has-key? h (first s))) (zero? (hash-ref h (first s))))
+         (which-square-helper h (rest s) (take-half p))]
+        [else (which-square-helper h (rest s) (drop-half p))]))
+
+(define (which-square h)
+  (let ([horizontal (which-square-helper h (take-half BASIC-SET) BASIC-SET)]
+        [vertical (which-square-helper h (drop-half BASIC-SET) BASIC-SET)])
+    (+ (* vertical BOARD-SIZE) horizontal)))
+
+
 (define EMPTY-BOARD (draw-board BOARD-SIZE))
 (define COINS (flip-coins (sqr BOARD-SIZE)))
-(define PS (powerset (build-list POWER-SET-SIZE identity)))
+(define PS (powerset BASIC-SET))
 
-(fill-board 0 COINS EMPTY-BOARD)
+
 COINS
 PS
-(build-hash COINS PS (make-immutable-hash))
+(define my-hash (build-hash COINS PS (make-immutable-hash)))
+my-hash
+
+(which-square my-hash)
+(draw-image-on-board HIGHLIGHT-SQUARE (get-xy (which-square my-hash)) (fill-board 0 COINS EMPTY-BOARD))
 
     
 
