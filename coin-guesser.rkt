@@ -1,6 +1,7 @@
 #lang racket
 
 (require 2htdp/image 2htdp/universe lens gregor gregor/period)
+(require (except-in racket/gui make-pen make-color date date?))
 
 ;; TODO
 ;; - powerset
@@ -10,8 +11,10 @@
 ;; - choose square (using mouse)
 ;; - tell user wether they chose the right square or not
 
-(define DIFFICULTY 1) ; 1 2 or 3
+(define-values (EASY MEDIUM HARD) (values 1 2 3))
+(define DIFFICULTY 'to-be-decided-by-the-user)
 (define GAME-ROUNDS 3)
+(define (set-board-size)
 (define BOARD-SIZE (expt 2 DIFFICULTY))
 (define SQUARE-SIZE 50)
 (define COIN-SIZE 15)
@@ -135,7 +138,7 @@
 
 (define (start-game)
   (let* ([coins (flip-coins (sqr BOARD-SIZE))]
-        [correct-square (which-square (build-hash coins PS (make-immutable-hash)))])
+         [correct-square (which-square (build-hash coins PS (make-immutable-hash)))])
     (game (fill-board 0 coins EMPTY-BOARD) 1 correct-square (now) empty)))
 
 (define (render-game g)
@@ -161,9 +164,55 @@
     (stop-when game-over? render-game) ;(stop-when (λ (x) #f) render-game)
     (name "Coin Guesser")
     (close-on-stop 1)))
-(start)
+
+;; TODO: write macro to improve syntax here, this is too wordy should be able to write as
+;;
+;; (frame% fame ([label "Coind Guesser"])
+;;   (vertical-panel% choose-difficult-pannel ()
+;;     (verical-pane% vert-pane ()
+;;       (message% msg ([label "Choose Difficulty:"]))
+;;       (message% diff ([label ""])))
+;;     (horizontal-pane% button-pane ([alignment '(center top)])
+;;       (button% ([label "Easy"]
+;;                 [callback (lambda (button event) (send diff set-lable "EASY))]))...
 
 
+
+(define frame (new frame% [label "Coin Guesser"]))
+
+(define choose-difficulty-panel (new vertical-panel% [parent frame]))
+(define vert-pane (new vertical-pane% [parent choose-difficulty-panel]))
+(define button-pane (new horizontal-pane%
+                         [parent choose-difficulty-panel]
+                         [alignment '(center top)]))
+
+(define msg (new message%
+                 [parent vert-pane]
+                 [label "Choose Difficulty:"]))
+;(define diff (new message%
+;                  [parent vert-pane]
+;                  [label ""]
+;                  [auto-resize #t]))
+
+(define (start-game difficulty)
+  (set! DIFFICULTY difficulty)
+  (send choose-difficulty-panel is-shown #f)
+  (send game-panel is-shown #t))
+
+(new button%
+     [parent button-pane]
+     [label "Easy"]
+     [callback (lambda (button event) (start-game EASY))])
+(new button%
+     [parent button-pane]
+     [label "Medium"]
+     [callback (lambda (button event) (start-game MEDIUM))])
+(new button%
+     [parent button-pane]
+     [label "Hard"]
+     [callback (lambda (button event) (start-game HARD))])
+(send frame fullscreen #f)
+(send frame show #t)
 
 
 
