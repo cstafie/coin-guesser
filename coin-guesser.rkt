@@ -1,7 +1,7 @@
 #lang racket
 
-(require 2htdp/image 2htdp/universe lens gregor gregor/period) ;; TODO get rid of gregor dependencies
-(require (except-in racket/gui make-pen make-color date date?))
+(require racket/gui)
+;(require (except-in racket/gui make-pen make-color date date?))
 
 (define board%
   (class object%
@@ -11,32 +11,38 @@
 
     ;; CONSTANTS
     (define GAME-ROUNDS 3)
-    (define SQUARE-SIZE 50)
-    (define COIN-SIZE 15)
-    (define TRANSPARENT (color 0 0 0 0))
-    (define SQUARE-COLOR1 (color 200 200 200))
-    (define SQUARE-COLOR2 (color 50 50 50))
-    (define COIN-HEADS-COLOR "gold")
+    (define SQUARE-SIZE 80)
+    (define COIN-SIZE 50)
+
+    (define TRANSPARENT (make-object color% 0 0 0 0))
+    (define SQUARE-COLOR1 (make-object color% 200 200 200))
+    (define SQUARE-COLOR2 (make-object color% 50 50 50))
+    (define COIN-HEADS-COLOR (make-object color% "Firebrick"))
+    (define TRANSPARENT-GREEN (make-object color% 0 255 0 0.2))
     (define COIN-TAILS-COLOR TRANSPARENT)
 
     ;; FINAL MEMBERS
+    (define coin-offset (/ (- SQUARE-SIZE COIN-SIZE) 2))
     (define board-size (expt 2 difficulty))
     (define board-width (* board-size SQUARE-SIZE))
     (define power-set-size (inexact->exact (log (sqr board-size) 2)))
     (define basic-set (build-list power-set-size identity))
 
     ;; RENDERABLE CONSTANTS
-    (define GREEN-SQUARE (square SQUARE-SIZE "solid" (color 0 255 0 50)))
-    (define BLANK-SQUARE (square SQUARE-SIZE "solid" TRANSPARENT))
-    (define HEADS (freeze (place-image
-                           (circle COIN-SIZE "solid" COIN-HEADS-COLOR)
-                           (/ SQUARE-SIZE 2) (/ SQUARE-SIZE 2)
-                           BLANK-SQUARE)))
-    (define TAILS (freeze (place-image
-                           (circle COIN-SIZE "solid" COIN-TAILS-COLOR)
-                           (/ SQUARE-SIZE 2) (/ SQUARE-SIZE 2)
-                           BLANK-SQUARE)))
+    (define (draw-square dc position color)
+      (send dc set-pen (make-object pen% TRANSPARENT 0))
+      (send dc set-brush (make-object brush% color 'solid))
+      (send dc draw-rectangle (scalev (car position)) (scalev (cdr position)) SQUARE-SIZE SQUARE-SIZE))
 
+    (define (draw-circle dc position color)
+      (send dc set-smoothing 'aligned)
+      (send dc set-pen (make-object pen% TRANSPARENT 0))
+      (send dc set-brush (make-object brush% color 'solid))
+      (send dc draw-arc
+            (+ coin-offset (scalev (car position)))
+            (+ coin-offset (scalev (cdr position)))
+            COIN-SIZE COIN-SIZE 0 (* 2 pi)))
+      
     ;; PRIVATE HELPER FUNCTIONS
     (define (scalev v) (* SQUARE-SIZE v))
     (define (get-x position) (modulo position board-size))
@@ -45,44 +51,18 @@
     (define (take-half l) (take l (/ (length l) 2)))
     (define (drop-half l) (drop l (/ (length l) 2)))
 
-    ;; PRIVATE FUNCTIONS
-    (define (make-coin heads)
-      (freeze (place-image
-               (circle COIN-SIZE "solid" (if heads COIN-HEADS-COLOR COIN-TAILS-COLOR))
-               (/ SQUARE-SIZE 2) (/ SQUARE-SIZE 2)
-               BLANK-SQUARE)))
-    ;; makes a square and decides it's color based on it's position
-    (define (make-square position)
-      (square SQUARE-SIZE "solid" (if (equal? (modulo (+ (car position) (cdr position)) 2) 0)
-                                      SQUARE-COLOR1 SQUARE-COLOR2)))
-
     (define (flip-coins n)
       (cond [(zero? n) '()]
             [else (cons (random 2) (flip-coins (sub1 n)))]))
 
-    (define (draw-image-on-board img position board)
-      (place-image/align img (scalev (car position)) (scalev (cdr position)) "left" "top" board))
-
-    (define (draw-board)
-      (define (draw-squares counter img)
-        (cond [(equal? counter (sqr board-size)) (freeze img)]
-              [else
-               (let ([position (get-xy counter)])
-                 (draw-squares
-                  (add1 counter)
-                  (draw-image-on-board (make-square position) position img)))]))
-      (draw-squares 0 (empty-scene (scalev board-size) (scalev board-size))))
+    (define (decide-square-color position)
+      (if (equal? (modulo (+ (car position) (cdr position)) 2) 0) SQUARE-COLOR1 SQUARE-COLOR2))
 
     (define (powerset s)
       (cond [(empty? s) '(())]
             [else (let ([rest-powerset (powerset (rest s))])
                     (append rest-powerset
                             (map (λ (l) (cons (first s) l)) rest-powerset)))]))
-
-    (define (fill-board counter coins board)
-      (cond [(empty? coins) (freeze board)]
-            [else (fill-board (add1 counter) (rest coins)
-                              (draw-image-on-board (make-coin (zero? (first coins))) (get-xy counter) board))]))
 
     ;; Function group for calculating correct which square the board is pointing to
     (define (hash-addset h s)
@@ -107,71 +87,41 @@
             [vertical (which-square-helper h (drop-half basic-set) (build-list board-size identity))])
         (+ (* vertical board-size) horizontal)))
 
+    (define (draw-board)
+      (define (draw-squares counter board-bmdc)
+        (cond [(equal? counter (sqr board-size)) (send board-bmdc get-bitmap)]
+              [else
+               (let ([position (get-xy counter)])
+                 (draw-square board-bmdc position (decide-square-color position))
+                 (draw-squares (add1 counter) board-bmdc))]))
+      (draw-squares 0 (make-object bitmap-dc% (make-object bitmap% (scalev board-size) (scalev board-size)))))
+
+    (define (fill-board counter coins board-bmdc)
+      (cond [(empty? coins) (send board-bmdc get-bitmap)]
+            [else
+             (draw-circle board-bmdc (get-xy counter) (if (zero? (first coins)) COIN-HEADS-COLOR COIN-TAILS-COLOR))
+             (fill-board (add1 counter) (rest coins) board-bmdc)]))
+
+    (define (highlight-square position board-bmdc)
+      (draw-square board-bmdc position TRANSPARENT-GREEN)
+      (send board-bmdc get-bitmap))
+
     ;; 
     (define empty-board (draw-board))
     (define ps (powerset basic-set))
     (define coins (flip-coins (sqr board-size)))
     (define correct-square (which-square (build-hash coins ps (make-immutable-hash))))
-    (define plain-game-board (fill-board 0 coins empty-board))
-    (define game-board plain-game-board)
+    (define plain-game-board (fill-board 0 coins (make-object bitmap-dc% empty-board)))
+    (define board-bitmap plain-game-board)
 
     ;; PUBLIC FUNCTIONS
-    (define/public (get-bitmap)
-      (color-list->bitmap (image->color-list game-board) board-width board-width))))
+    (define/public (get-bitmap) board-bitmap)
+    (define/public (show-square)
+      (set! board-bitmap
+            (highlight-square
+             (get-xy correct-square)
+             (make-object bitmap-dc% plain-game-board))))))
       
-      
-;; USEFUL CODE SNIPPETS FOR LATER XD
-
-;COINS
-;PS
-;(define my-hash (build-hash COINS PS (make-immutable-hash)))
-
-;my-hash
-
-
-;(which-square my-hash)
-;(fill-board 0 COINS EMPTY-BOARD)
-
-;; GETTING TIME
-;(define a (period->list (time-period-between (now) (now))))
-;(define h (make-immutable-hash a))
-;(hash-ref h 'hours)
-
-;(define (elapsed-time then)
-;  (let ([h (make-immutable-hash (period->list (time-period-between then (now))))])
-;    (string-append
-;     (number->string (hash-ref h 'minutes)) ":" (number->string (hash-ref h 'seconds)))))
-;
-;(define EMPTY-BOARD (draw-board BOARD-SIZE))
-;(define PS (powerset BASIC-SET))
-;(struct/lens game [board round correct-square start-time finished-rounds] #:transparent)
-;
-;
-;
-;(define (render-game g)
-;  (place-image/align
-;   (text (elapsed-time (game-start-time g)) 12 "black") (+ 20 BOARD-WIDTH) 20 "left" "top"
-;   (place-image/align (game-board g) 0 0 "left" "top" EMPTY-SCENE)))
-;
-;(define (handle-mouse g x y m)
-;  (println x)
-;  (println y)
-;  (println m) g)
-;
-;(define (game-over? g)
-;  (> (game-round g) GAME-ROUNDS))
-;
-;(define (update-game g) g)
-;
-;(define (start)
-;  (big-bang (start-game)
-;    (on-tick update-game (/ 1 10)) ;don't need high tick rate, just updating time
-;    (on-mouse handle-mouse)
-;    (to-draw render-game)
-;    (stop-when game-over? render-game) ;(stop-when (λ (x) #f) render-game)
-;    (name "Coin Guesser")
-;    (close-on-stop 1)))
-
 ;; TODO: write macro to improve syntax here, this is too wordy should be able to write as
 ;;
 ;; (frame% fame ([label "Coind Guesser"])
@@ -187,18 +137,30 @@
 (define frame (new frame% [label "Coin Guesser"]))
 
 (define current-board empty)
-(define (start-game difficulty)
-  (set! current-board (new board% [difficulty difficulty]))
-  (send choose-difficulty-panel reparent the-hidden-frame)
-  (send game-panel reparent frame))
 
-(define game-panel (new panel% [parent the-hidden-frame]))
+(define game-panel (new horizontal-panel%
+                        [parent the-hidden-frame]))
 
 (define canvas (new canvas%
                     [parent game-panel]
                     [paint-callback
                      (λ (canvas dc)
-                       (send dc draw-bitmap (send current-board get-bitmap) 0 0))]))
+                       (let ([bm (send current-board get-bitmap)])
+                         (send dc draw-bitmap bm 0 0)
+                         (send canvas min-width (send bm get-width))
+                         (send canvas min-height (send bm get-height))))]))
+
+(define show-hide-square (new button%
+                              [parent game-panel]
+                              [label "Show Solution"]
+                              [callback (λ (button event)
+                                          (send current-board show-square)
+                                          (send canvas on-paint))]))
+
+(define (start-game difficulty)
+  (set! current-board (new board% [difficulty difficulty]))
+  (send choose-difficulty-panel reparent the-hidden-frame)
+  (send game-panel reparent frame))
 
 (define choose-difficulty-panel (new vertical-panel% [parent frame]))
 (define vert-pane (new vertical-pane% [parent choose-difficulty-panel]))
@@ -209,41 +171,18 @@
 (define msg (new message%
                  [parent vert-pane]
                  [label "Choose Difficulty:"]))
-;(define diff (new message%
-;                  [parent vert-pane]
-;                  [label ""]
-;                  [auto-resize #t]))
 
-(new button%
+(define easy-button (new button%
      [parent button-pane]
      [label "Easy"]
-     [callback (λ (button event) (start-game 1))])
-(new button%
+     [callback (λ (button event) (start-game 1))]))
+(define medium-button(new button%
      [parent button-pane]
      [label "Medium"]
-     [callback (λ (button event) (start-game 2))])
-(new button%
+     [callback (λ (button event) (start-game 2))]))
+(define hard-button (new button%
      [parent button-pane]
      [label "Hard"]
-     [callback (λ (button event) (start-game 3))])
+     [callback (λ (button event) (start-game 3))]))
 (send frame fullscreen #f)
 (send frame show #t)
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-
-
-
-
-
