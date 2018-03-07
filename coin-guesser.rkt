@@ -133,10 +133,9 @@
 ;;       (button% ([label "Easy"]
 ;;                 [callback (λ (button event) (send diff set-lable "EASY))]))...
 
+(define current-board empty)
 (define the-hidden-frame (new frame% [label "If you see this i don't understand what's going on"]))
 (define frame (new frame% [label "Coin Guesser"]))
-
-(define current-board empty)
 
 (define game-panel (new horizontal-panel%
                         [parent the-hidden-frame]))
@@ -150,16 +149,21 @@
                          (send canvas min-width (send bm get-width))
                          (send canvas min-height (send bm get-height))))]))
 
-(define show-hide-square (new button%
+(define game-panel-side (new panel% [parent game-panel]))
+
+(define show-solution-button (new button%
                               [parent game-panel]
                               [label "Show Solution"]
                               [callback (λ (button event)
                                           (send current-board show-square)
-                                          (send canvas on-paint))]))
+                                          (send canvas on-paint)
+                                          (send choose-difficulty-panel reparent game-panel-side)
+                                          (send show-solution-button reparent the-hidden-frame))]))
 
 (define (start-game difficulty)
   (set! current-board (new board% [difficulty difficulty]))
   (send choose-difficulty-panel reparent the-hidden-frame)
+  (send show-solution-button reparent game-panel-side)
   (send game-panel reparent frame))
 
 (define choose-difficulty-panel (new vertical-panel% [parent frame]))
@@ -184,5 +188,6 @@
      [parent button-pane]
      [label "Hard"]
      [callback (λ (button event) (start-game 3))]))
+
 (send frame fullscreen #f)
 (send frame show #t)
