@@ -19,6 +19,7 @@
     (define SQUARE-COLOR2 (make-object color% 50 50 50))
     (define COIN-HEADS-COLOR (make-object color% "Firebrick"))
     (define TRANSPARENT-GREEN (make-object color% 0 255 0 0.2))
+    (define HOVER-COLOR (make-object color% 150 150 255 0.4))
     (define COIN-TAILS-COLOR TRANSPARENT)
 
     ;; FINAL MEMBERS
@@ -51,76 +52,97 @@
     (define (take-half l) (take l (/ (length l) 2)))
     (define (drop-half l) (drop l (/ (length l) 2)))
 
-    (define (flip-coins n)
-      (cond [(zero? n) '()]
-            [else (cons (random 2) (flip-coins (sub1 n)))]))
+    (define (xy->position x y)
+      (cons
+       (inexact->exact (floor (/ x SQUARE-SIZE)))
+       (inexact->exact (floor (/ y SQUARE-SIZE)))))
 
-    (define (decide-square-color position)
-      (if (equal? (modulo (+ (car position) (cdr position)) 2) 0) SQUARE-COLOR1 SQUARE-COLOR2))
+      (define (flip-coins n)
+        (cond [(zero? n) '()]
+              [else (cons (random 2) (flip-coins (sub1 n)))]))
 
-    (define (powerset s)
-      (cond [(empty? s) '(())]
-            [else (let ([rest-powerset (powerset (rest s))])
-                    (append rest-powerset
-                            (map (λ (l) (cons (first s) l)) rest-powerset)))]))
+      (define (decide-square-color position)
+        (if (equal? (modulo (+ (car position) (cdr position)) 2) 0) SQUARE-COLOR1 SQUARE-COLOR2))
 
-    ;; Function group for calculating correct which square the board is pointing to
-    (define (hash-addset h s)
-      (cond [(empty? s) h]
-            [(hash-has-key? h (first s))
-             (hash-addset (hash-set h (first s) (modulo (add1 (hash-ref h (first s))) 2)) (rest s))]
-            [else (hash-addset (hash-set h (first s) 1) (rest s))]))
+      (define (powerset s)
+        (cond [(empty? s) '(())]
+              [else (let ([rest-powerset (powerset (rest s))])
+                      (append rest-powerset
+                              (map (λ (l) (cons (first s) l)) rest-powerset)))]))
 
-    (define (build-hash coins ps h)
-      (cond [(empty? coins) h]
-            [(zero? (first coins)) (build-hash (rest coins) (rest ps) (hash-addset h (first ps)))]
-            [else (build-hash (rest coins) (rest ps) h)]))
+      ;; Function group for calculating correct which square the board is pointing to
+      (define (hash-addset h s)
+        (cond [(empty? s) h]
+              [(hash-has-key? h (first s))
+               (hash-addset (hash-set h (first s) (modulo (add1 (hash-ref h (first s))) 2)) (rest s))]
+              [else (hash-addset (hash-set h (first s) 1) (rest s))]))
 
-    (define (which-square-helper h s p)
-      (cond [(empty? s) (first p)]
-            [(or (not (hash-has-key? h (first s))) (zero? (hash-ref h (first s))))
-             (which-square-helper h (rest s) (take-half p))]
-            [else (which-square-helper h (rest s) (drop-half p))]))
+      (define (build-hash coins ps h)
+        (cond [(empty? coins) h]
+              [(zero? (first coins)) (build-hash (rest coins) (rest ps) (hash-addset h (first ps)))]
+              [else (build-hash (rest coins) (rest ps) h)]))
 
-    (define (which-square h)
-      (let ([horizontal (which-square-helper h (take-half basic-set) (build-list board-size identity))]
-            [vertical (which-square-helper h (drop-half basic-set) (build-list board-size identity))])
-        (+ (* vertical board-size) horizontal)))
+      (define (which-square-helper h s p)
+        (cond [(empty? s) (first p)]
+              [(or (not (hash-has-key? h (first s))) (zero? (hash-ref h (first s))))
+               (which-square-helper h (rest s) (take-half p))]
+              [else (which-square-helper h (rest s) (drop-half p))]))
 
-    (define (draw-board)
-      (define (draw-squares counter board-bmdc)
-        (cond [(equal? counter (sqr board-size)) (send board-bmdc get-bitmap)]
+      (define (which-square h)
+        (let ([horizontal (which-square-helper h (take-half basic-set) (build-list board-size identity))]
+              [vertical (which-square-helper h (drop-half basic-set) (build-list board-size identity))])
+          (+ (* vertical board-size) horizontal)))
+
+      (define (draw-board)
+        (define (draw-squares counter board-bmdc)
+          (cond [(equal? counter (sqr board-size)) (send board-bmdc get-bitmap)]
+                [else
+                 (let ([position (get-xy counter)])
+                   (draw-square board-bmdc position (decide-square-color position))
+                   (draw-squares (add1 counter) board-bmdc))]))
+        (draw-squares 0 (make-object bitmap-dc% (make-object bitmap% board-width board-width))))
+
+      (define (fill-board counter coins board-bmdc)
+        (cond [(empty? coins) (send board-bmdc get-bitmap)]
               [else
-               (let ([position (get-xy counter)])
-                 (draw-square board-bmdc position (decide-square-color position))
-                 (draw-squares (add1 counter) board-bmdc))]))
-      (draw-squares 0 (make-object bitmap-dc% (make-object bitmap% (scalev board-size) (scalev board-size)))))
+               (draw-circle board-bmdc (get-xy counter) (if (zero? (first coins)) COIN-HEADS-COLOR COIN-TAILS-COLOR))
+               (fill-board (add1 counter) (rest coins) board-bmdc)]))
 
-    (define (fill-board counter coins board-bmdc)
-      (cond [(empty? coins) (send board-bmdc get-bitmap)]
-            [else
-             (draw-circle board-bmdc (get-xy counter) (if (zero? (first coins)) COIN-HEADS-COLOR COIN-TAILS-COLOR))
-             (fill-board (add1 counter) (rest coins) board-bmdc)]))
+      (define (highlight-square board-bmdc position color)
+        (draw-square board-bmdc position color)
+        (send board-bmdc get-bitmap))
 
-    (define (highlight-square position board-bmdc)
-      (draw-square board-bmdc position TRANSPARENT-GREEN)
-      (send board-bmdc get-bitmap))
+      ;; 
+      (define empty-board (draw-board))
+      (define ps (powerset basic-set))
+      (define coins (flip-coins (sqr board-size)))
+      (define correct-square (which-square (build-hash coins ps (make-immutable-hash))))
+      (define plain-game-board (fill-board 0 coins (make-object bitmap-dc% empty-board)))
+      (define board-bitmap plain-game-board)
 
-    ;; 
-    (define empty-board (draw-board))
-    (define ps (powerset basic-set))
-    (define coins (flip-coins (sqr board-size)))
-    (define correct-square (which-square (build-hash coins ps (make-immutable-hash))))
-    (define plain-game-board (fill-board 0 coins (make-object bitmap-dc% empty-board)))
-    (define board-bitmap plain-game-board)
+      (define (get-board-bmdc)
+        (define new-bmdc (make-object bitmap-dc% (make-object bitmap% board-width board-width)))
+        (send new-bmdc draw-bitmap plain-game-board 0 0)
+        new-bmdc)
 
-    ;; PUBLIC FUNCTIONS
-    (define/public (get-bitmap) board-bitmap)
-    (define/public (show-square)
-      (set! board-bitmap
-            (highlight-square
-             (get-xy correct-square)
-             (make-object bitmap-dc% plain-game-board))))))
+      ;; PUBLIC FUNCTIONS
+
+      (define/public (handle-mouse mouse-event)
+        (let* ([event-type (send mouse-event get-event-type)]
+               [mouse-x (send mouse-event get-x)]
+               [mouse-y (send mouse-event get-y)]
+               [position (xy->position mouse-x mouse-y)])
+          (cond [(equal? event-type 'left-up) empty]
+                [(equal? event-type 'left-down) empty]
+                [(equal? event-type 'leave) (set! board-bitmap plain-game-board)]
+                [(equal? event-type 'motion) (set! board-bitmap (highlight-square (get-board-bmdc) position HOVER-COLOR))])))
+
+      (define/public (get-bitmap) board-bitmap)
+    
+      (define/public (show-square)
+        (set! plain-game-board (highlight-square (get-board-bmdc) (get-xy correct-square) TRANSPARENT-GREEN))
+        (set! board-bitmap plain-game-board))))
+            
       
 ;; TODO: write macro to improve syntax here, this is too wordy should be able to write as
 ;;
@@ -140,25 +162,35 @@
 (define game-panel (new horizontal-panel%
                         [parent the-hidden-frame]))
 
-(define canvas (new canvas%
-                    [parent game-panel]
-                    [paint-callback
-                     (λ (canvas dc)
-                       (let ([bm (send current-board get-bitmap)])
-                         (send dc draw-bitmap bm 0 0)
-                         (send canvas min-width (send bm get-width))
-                         (send canvas min-height (send bm get-height))))]))
+;;TODO: it's kinda weird the board-canvas uses current-board
+(define board-canvas%
+  (class canvas%
+    (inherit get-width get-height refresh)
+    
+    (define/override (on-event event)
+      (if (is-a? event mouse-event%) (send current-board handle-mouse event) (println "not a mouse event"))
+      (refresh))
+
+    (define/private (my-paint-callback self dc)
+      (let ([bm (send current-board get-bitmap)])
+        (send dc draw-bitmap bm 0 0)
+        (send canvas min-width (send bm get-width))
+        (send canvas min-height (send bm get-height))))
+    
+    (super-new [paint-callback (λ (c dc) (my-paint-callback c dc))])))
+
+(define canvas (new board-canvas% [parent game-panel]))
 
 (define game-panel-side (new panel% [parent game-panel]))
 
 (define show-solution-button (new button%
-                              [parent game-panel]
-                              [label "Show Solution"]
-                              [callback (λ (button event)
-                                          (send current-board show-square)
-                                          (send canvas on-paint)
-                                          (send choose-difficulty-panel reparent game-panel-side)
-                                          (send show-solution-button reparent the-hidden-frame))]))
+                                  [parent game-panel]
+                                  [label "Show Solution"]
+                                  [callback (λ (button event)
+                                              (send current-board show-square)
+                                              (send canvas on-paint)
+                                              (send choose-difficulty-panel reparent game-panel-side)
+                                              (send show-solution-button reparent the-hidden-frame))]))
 
 (define (start-game difficulty)
   (set! current-board (new board% [difficulty difficulty]))
@@ -177,17 +209,17 @@
                  [label "Choose Difficulty:"]))
 
 (define easy-button (new button%
-     [parent button-pane]
-     [label "Easy"]
-     [callback (λ (button event) (start-game 1))]))
+                         [parent button-pane]
+                         [label "Easy"]
+                         [callback (λ (button event) (start-game 1))]))
 (define medium-button(new button%
-     [parent button-pane]
-     [label "Medium"]
-     [callback (λ (button event) (start-game 2))]))
+                          [parent button-pane]
+                          [label "Medium"]
+                          [callback (λ (button event) (start-game 2))]))
 (define hard-button (new button%
-     [parent button-pane]
-     [label "Hard"]
-     [callback (λ (button event) (start-game 3))]))
+                         [parent button-pane]
+                         [label "Hard"]
+                         [callback (λ (button event) (start-game 3))]))
 
 (send frame fullscreen #f)
 (send frame show #t)
