@@ -18,8 +18,10 @@
     (define SQUARE-COLOR1 (make-object color% 200 200 200))
     (define SQUARE-COLOR2 (make-object color% 50 50 50))
     (define COIN-HEADS-COLOR (make-object color% "Firebrick"))
-    (define TRANSPARENT-GREEN (make-object color% 0 255 0 0.2))
-    (define HOVER-COLOR (make-object color% 150 150 255 0.4))
+    (define CORRECT-COLOR (make-object color% 0 255 0 0.35))
+    (define WRONG-COLOR (make-object color% 255 0 0 0.35))
+    (define HOVER-COLOR (make-object color% 150 150 255 0.35))
+    (define PRESS-COLOR (make-object color% 150 150 255 0.7))
     (define COIN-TAILS-COLOR TRANSPARENT)
 
     ;; FINAL MEMBERS
@@ -119,11 +121,22 @@
       (define correct-square (which-square (build-hash coins ps (make-immutable-hash))))
       (define plain-game-board (fill-board 0 coins (make-object bitmap-dc% empty-board)))
       (define board-bitmap plain-game-board)
+      (define revealed #f)
 
       (define (get-board-bmdc)
         (define new-bmdc (make-object bitmap-dc% (make-object bitmap% board-width board-width)))
         (send new-bmdc draw-bitmap plain-game-board 0 0)
         new-bmdc)
+
+     (define (try-square position)
+       (let ([board-bdmc (get-board-bmdc)]
+             [correct-position (get-xy correct-square)])
+          (if (not (equal? correct-position position))
+              (set! plain-game-board (highlight-square (get-board-bmdc) position WRONG-COLOR)) empty)
+          (set! plain-game-board (highlight-square (get-board-bmdc) correct-position CORRECT-COLOR))
+          (set! board-bitmap plain-game-board)
+          (set! revealed #true)
+          (send choose-difficulty-panel reparent game-panel-side)))
 
       ;; PUBLIC FUNCTIONS
 
@@ -132,17 +145,13 @@
                [mouse-x (send mouse-event get-x)]
                [mouse-y (send mouse-event get-y)]
                [position (xy->position mouse-x mouse-y)])
-          (cond [(equal? event-type 'left-up) empty]
-                [(equal? event-type 'left-down) empty]
+          (cond [revealed empty]
+                [(equal? event-type 'left-up) (try-square position)]
+                [(equal? event-type 'left-down) (set! board-bitmap (highlight-square (get-board-bmdc) position PRESS-COLOR))]
                 [(equal? event-type 'leave) (set! board-bitmap plain-game-board)]
                 [(equal? event-type 'motion) (set! board-bitmap (highlight-square (get-board-bmdc) position HOVER-COLOR))])))
 
-      (define/public (get-bitmap) board-bitmap)
-    
-      (define/public (show-square)
-        (set! plain-game-board (highlight-square (get-board-bmdc) (get-xy correct-square) TRANSPARENT-GREEN))
-        (set! board-bitmap plain-game-board))))
-            
+      (define/public (get-bitmap) board-bitmap)))
       
 ;; TODO: write macro to improve syntax here, this is too wordy should be able to write as
 ;;
@@ -183,19 +192,9 @@
 
 (define game-panel-side (new panel% [parent game-panel]))
 
-(define show-solution-button (new button%
-                                  [parent game-panel]
-                                  [label "Show Solution"]
-                                  [callback (λ (button event)
-                                              (send current-board show-square)
-                                              (send canvas on-paint)
-                                              (send choose-difficulty-panel reparent game-panel-side)
-                                              (send show-solution-button reparent the-hidden-frame))]))
-
 (define (start-game difficulty)
   (set! current-board (new board% [difficulty difficulty]))
   (send choose-difficulty-panel reparent the-hidden-frame)
-  (send show-solution-button reparent game-panel-side)
   (send game-panel reparent frame))
 
 (define choose-difficulty-panel (new vertical-panel% [parent frame]))
